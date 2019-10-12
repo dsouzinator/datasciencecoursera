@@ -1,0 +1,164 @@
+---
+title: "Predictions using Weight Lifting Exercises Dataset"
+author: "Noel DSouza"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+
+```{r warning=FALSE, error=FALSE}
+library(rattle)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(randomForest)
+library(RColorBrewer)
+```  
+
+```{r warning=FALSE, error=FALSE}
+set.seed(123)
+```  
+
+Download the dataset 
+```{r warning=FALSE, error=FALSE, echo=FALSE}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile = trainFile)
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile = testFile)
+}
+rm(trainUrl)
+rm(testUrl)
+```  
+
+##Reading Data  
+  
+```{r warning=FALSE}
+trainRaw <- read.csv(trainFile)
+testRaw <- read.csv(testFile)
+dim(trainRaw)
+dim(testRaw)
+rm(trainFile)
+rm(testFile)
+``` 
+
+The training data set contains `r dim(trainRaw)[1]` rows and `r dim(trainRaw)[2]` variables.
+The testing data set contains `r dim(testRaw)[1]` rows and `r dim(testRaw)[2]` variables. 
+The `classe` variable in the training set is the variable to predict.  
+
+
+## Cleaning Data  
+We clean the data and remove observations with NA values
+
+
+We clean the Near Zero Variance Variables.  
+```{r warning=FALSE}
+NZV <- nearZeroVar(trainRaw, saveMetrics = TRUE)
+head(NZV, 20)
+training01 <- trainRaw[, !NZV$nzv]
+testing01 <- testRaw[, !NZV$nzv]
+dim(training01)
+dim(testing01)
+rm(testRaw)
+rm(NZV)
+rm(trainRaw)
+```  
+
+Remove variables that do not contribute to accelerometer measurement  
+```{r warning=FALSE, error=FALSE}
+regex <- grepl("^X|timestamp|user_name", names(training01))
+training <- training01[, !regex]
+testing <- testing01[, !regex]
+rm(regex)
+rm(training01)
+rm(testing01)
+dim(training)
+dim(testing)
+```  
+
+Remove variables that contain `NA's`.  
+```{r warning=FALSE, error=FALSE}
+cond <- (colSums(is.na(training)) == 0)
+training <- training[, cond]
+testing <- testing[, cond]
+rm(cond)
+```  
+
+Correlation Matrix of Columns in the Training Data set.  
+```{r warning=FALSE, error=FALSE}
+corrplot(cor(training[, -length(names(training))]), method = "color", tl.cex = 0.5)
+``` 
+
+## Partitioning Training Set  
+We split the training set into a 70/30 split 
+```{r warning=FALSE, error=FALSE}
+set.seed(123) 
+atrain <- createDataPartition(training$classe, p = 0.70, list = FALSE)
+validation <- training[-atrain, ]
+training <- training[atrain, ]
+rm(atrain)
+```  
+The Dataset consists of `r dim(training)[2]` variables 
+Training Data: `r dim(training)[1]` observations.  
+Validation Data: `r dim(validation)[1]` observations.  
+Testing Data: `r dim(testing)[1]` observations.  
+
+
+## Data Modelling  
+
+### Decision Tree  
+We fit a predictive model decision tree agorithm
+```{r warning=FALSE, error=FALSE}
+modelTree <- rpart(classe ~ ., data = training, method = "class")
+prp(modelTree)
+```  
+
+We estimate the performance of the model on the validation data set.  
+```{r warning=FALSE, error=FALSE}
+predictTree <- predict(modelTree, validation, type = "class")
+confusionMatrix(validation$classe, predictTree)
+accuracy <- postResample(predictTree, validation$classe)
+ose <- 1 - as.numeric(confusionMatrix(validation$classe, predictTree)$overall[1])
+rm(predictTree)
+rm(modelTree)
+```  
+
+The Estimated Accuracy of the Decision Tree Model is `r accuracy[1]*100`% and the Estimated Out-of-Sample Error is `r ose*100`%.  
+
+### Random Forest
+We fit a predictive model for activity recognition using Random Forest algorithm.  
+We will use 5-fold cross validation when applying the algorithm.  
+```{r warning=FALSE, error=FALSE}
+modelRF <- train(classe ~ ., data = training, method = "rf", trControl = trainControl(method = "cv", 5), ntree = 250)
+modelRF
+```  
+
+Now, we estimate the performance of the model on the validation data set.  
+```{r warning=FALSE, error=FALSE}
+predictRF <- predict(modelRF, validation)
+confusionMatrix(validation$classe, predictRF)
+accuracy <- postResample(predictRF, validation$classe)
+ose <- 1 - as.numeric(confusionMatrix(validation$classe, predictRF)$overall[1])
+rm(predictRF)
+```  
+
+The Accuracy of the Random Forest Model is `r accuracy[1]*100`% and the Estimated Out-of-Sample Error is `r ose*100`%.  
+Random Forests gave better Results.
+
+## Predicting The Exercise for Test Data  
+We apply the Random Forest model to the original testing data set.  
+```{r warning=FALSE, error=FALSE}
+rm(accuracy)
+rm(ose)
+predict(modelRF, testing[, -length(names(testing))])
+```
+
